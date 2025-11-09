@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Event Management System</title>
+<style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+    h2, h3 { color: #333; }
+    input, button { margin: 5px; padding: 5px; }
+    table { border-collapse: collapse; margin-top: 10px; width: 100%; background: #fff; }
+    th, td { border: 1px solid #aaa; padding: 5px; text-align: left; }
+    th { background: #ddd; }
+    .section { margin-bottom: 20px; padding: 10px; background: #eaeaea; border-radius: 5px; }
+</style>
+</head>
+<body>
+
+<h2>Event Management System (Browser Version)</h2>
+
+<div class="section" id="loginSection">
+    <h3>User / Admin Login</h3>
+    <input type="text" id="loginUser" placeholder="Username">
+    <input type="password" id="loginPass" placeholder="Password">
+    <button onclick="login()">Login</button>
+    <button onclick="showRegister()">Register</button>
+</div>
+
+<div class="section" id="registerSection" style="display:none;">
+    <h3>User Registration</h3>
+    <input type="text" id="regUser" placeholder="Username">
+    <input type="password" id="regPass" placeholder="Password">
+    <button onclick="register()">Register</button>
+    <button onclick="showLogin()">Back to Login</button>
+</div>
+
+<div class="section" id="userPanel" style="display:none;">
+    <h3>User Panel - <span id="currentUser"></span></h3>
+    <button onclick="showEvents()">View Events</button>
+    <button onclick="bookTicket()">Book Ticket</button>
+    <button onclick="cancelBooking()">Cancel Booking</button>
+    <button onclick="viewBookings()">My Bookings</button>
+    <button onclick="viewPayments()">My Payments</button>
+    <button onclick="viewNotificationsUser()">Notifications</button>
+    <button onclick="addFeedbackUser()">Feedback</button>
+    <button onclick="searchBookingUser()">Search Booking by ID</button>
+    <button onclick="logout()">Logout</button>
+</div>
+
+<div class="section" id="adminPanel" style="display:none;">
+    <h3>Admin Panel</h3>
+    <button onclick="addEvent()">Add Event</button>
+    <button onclick="editEvent()">Edit Event</button>
+    <button onclick="deleteEvent()">Delete Event</button>
+    <button onclick="showEvents()">View Events</button>
+    <button onclick="viewFeedbackAdmin()">View Feedback</button>
+    <button onclick="searchBookingAdmin()">Search Booking by ID</button>
+    <button onclick="logout()">Logout</button>
+</div>
+
+<hr>
+
+<div class="section" id="outputSection">
+    <h3>Output</h3>
+    <pre id="outputArea"></pre>
+</div>
+
+<script>
+// ----------------- Data Structures -----------------
+let users = [];
+let events = [];
+let bookings = [];
+let payments = [];
+let notifications = [];
+let waitingList = [];
+let feedbackList = [];
+let currentUser = null;
+
+// Hardcoded admin credentials
+const adminCred = {username: "admin", password: "123"};
+
+// ----------------- BST for Bookings -----------------
+class BSTNode {
+    constructor(bookingId, username, eventId, status, phone, eventName, paymentId) {
+        this.bookingId = bookingId;
+        this.username = username;
+        this.eventId = eventId;
+        this.status = status;
+        this.phone = phone;
+        this.eventName = eventName;
+        this.paymentId = paymentId;
+        this.left = null;
+        this.right = null;
+    }
+}
+
+let bstRoot = null;
+
+function bstInsert(root, b) {
+    if (!root) return new BSTNode(b.bookingId, b.username, b.eventId, b.status, b.phone, b.eventName, b.paymentId);
+    if (b.bookingId < root.bookingId) root.left = bstInsert(root.left, b);
+    else if (b.bookingId > root.bookingId) root.right = bstInsert(root.right, b);
+    return root;
+}
+
+function bstSearch(root, bookingId) {
+    if (!root) return null;
+    if (bookingId === root.bookingId) return root;
+    if (bookingId < root.bookingId) return bstSearch(root.left, bookingId);
+    return bstSearch(root.right, bookingId);
+}
+
+function buildBST() {
+    bstRoot = null;
+    for (let b of bookings) {
+        bstRoot = bstInsert(bstRoot, b);
+    }
+}
+
+// ----------------- Utility -----------------
+function log(msg){ document.getElementById("outputArea").textContent += msg + "\n"; }
+function clearOutput(){ document.getElementById("outputArea").textContent = ""; }
+
+// ----------------- Server Helper -----------------
+async function postData(url, data){
+    const res = await fetch(url, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(data)
+    });
+    return await res.text();
+}
+
+// ----------------- Registration / Login -----------------
+function showRegister(){ document.getElementById("loginSection").style.display="none"; document.getElementById("registerSection").style.display="block"; }
+function showLogin(){ document.getElementById("loginSection").style.display="block"; document.getElementById("registerSection").style.display="none"; }
+
+async function register(){
+    const u = document.getElementById("regUser").value.trim();
+    const p = document.getElementById("regPass").value.trim();
+    if(users.find(x=>x.username===u)){ alert("User exists!"); return; }
+    users.push({username:u,password:p});
+    const msg = await postData('/users',{username:u,password:p});
+    alert(msg);
+}
+
+function login(){
+    const u = document.getElementById("loginUser").value.trim();
+    const p = document.getElementById("loginPass").value.trim();
+    if(u===adminCred.username && p===adminCred.password){
+        currentUser = "admin";
+        document.getElementById("loginSection").style.display="none";
+        document.getElementById("adminPanel").style.display="block";
+        clearOutput(); log("Admin logged in.");
+        return;
+    }
+    const user = users.find(x=>x.username===u && x.password===p);
+    if(user){
+        currentUser = u;
+        document.getElementById("loginSection").style.display="none";
+        document.getElementById("userPanel").style.display="block";
+        document.getElementById("currentUser").textContent = currentUser;
+        clearOutput(); log(`User ${currentUser} logged in.`);
+    } else alert("Invalid credentials.");
+}
+
+function logout(){
+    currentUser=null;
+    document.getElementById("userPanel").style.display="none";
+    document.getElementById("adminPanel").style.display="none";
+    document.getElementById("loginSection").style.display="block";
+    clearOutput();
+}
+
+// ----------------- Event Management -----------------
+async function addEvent(){
+    const id = parseInt(prompt("Event ID:"));
+    if(events.find(x=>x.id===id)){ alert("ID exists."); return; }
+    const name = prompt("Event name (no spaces):");
+    const date = prompt("Date (DD/MM/YYYY):");
+    const time = prompt("Time (HH:MM):");
+    const capacity = parseInt(prompt("Capacity:"));
+    const price = parseInt(prompt("Price:"));
+    events.push({id,name,date,time,capacity,price});
+    await postData('/events',{id,name,date,time,capacity,price});
+    log(`Event added: ${name} (${id})`);
+}
+
+function showEvents(){
+    clearOutput();
+    if(events.length===0){ log("No events."); return; }
+    log("--- Events ---");
+    events.forEach(e=>{
+        log(`ID:${e.id} | ${e.name} | ${e.date} ${e.time} | Cap:${e.capacity} | ₹${e.price}`);
+    });
+}
+
+async function editEvent(){
+    const id=parseInt(prompt("Enter Event ID to edit:"));
+    const e=events.find(x=>x.id===id);
+    if(!e){ alert("Not found."); return; }
+    e.name=prompt("New name:",e.name);
+    e.date=prompt("New date:",e.date);
+    e.time=prompt("New time:",e.time);
+    e.capacity=parseInt(prompt("New capacity:",e.capacity));
+    e.price=parseInt(prompt("New price:",e.price));
+    await postData('/events',{id:e.id,name:e.name,date:e.date,time:e.time,capacity:e.capacity,price:e.price});
+    log(`Event ${e.id} updated.`);
+}
+
+async function deleteEvent(){
+    const id=parseInt(prompt("Enter Event ID to delete:"));
+    const index = events.findIndex(x=>x.id===id);
+    if(index===-1){ alert("Not found."); return; }
+    events.splice(index,1);
+    await postData('/deleteEvent',{id});
+    log(`Event ${id} deleted.`);
+}
+
+// ----------------- Bookings -----------------
+async function bookTicket(){
+    showEvents();
+    const eid = parseInt(prompt("Enter Event ID to book:"));
+    const event = events.find(e=>e.id===eid);
+    if(!event){ alert("Invalid event."); return; }
+    if(event.capacity<=0){
+        const phone = prompt("Event full. Enter phone to join waiting list:");
+        enqueueWaiting(currentUser, phone, eid);
+        await addNotification(currentUser, "Added to waiting list.");
+        return;
+    }
+    const phone = prompt("Enter your phone:");
+    const bookingId = "B"+(Math.floor(Math.random()*90000)+1000);
+    const pid = await processPayment(currentUser, bookingId, event.price);
+    const newBooking = {bookingId, username:currentUser, eventName:event.name, eventId:eid, phone, status:"Confirmed", paymentId:pid};
+    bookings.push(newBooking);
+    event.capacity--;
+    bstRoot = bstInsert(bstRoot, newBooking); // update BST
+    await postData('/bookings',newBooking);
+    await addNotification(currentUser, `Booking confirmed: ${event.name} (${bookingId})`);
+    log(`Booking done. ID: ${bookingId}`);
+}
+
+async function cancelBooking(){
+    const bid = prompt("Enter Booking ID to cancel:");
+    const bIndex = bookings.findIndex(x=>x.bookingId===bid && x.username===currentUser);
+    if(bIndex===-1){ alert("Not found or not yours."); return; }
+    bookings[bIndex].status="Cancelled";
+    const e = events.find(x=>x.id===bookings[bIndex].eventId);
+    if(e) e.capacity++;
+    await addNotification(currentUser,"Your booking was cancelled.");
+    const w = dequeueWaiting(bookings[bIndex].eventId);
+    if(w){
+        const newBookingId = "B"+(Math.floor(Math.random()*90000)+1000);
+        const pid = await processPayment(w.username,newBookingId,e.price);
+        const newBooking = {bookingId:newBookingId, username:w.username, eventName:e.name, eventId:e.id, phone:w.phone, status:"Confirmed", paymentId:pid};
+        bookings.push(newBooking);
+        e.capacity--;
+        bstRoot = bstInsert(bstRoot, newBooking); // update BST
+        await addNotification(w.username,"A seat became available. Booking confirmed.");
+    }
+    buildBST(); // rebuild BST to remove cancelled bookings
+    log(`Booking ${bid} cancelled.`);
+}
+
+function viewBookings(){
+    clearOutput();
+    log("--- Your Bookings ---");
+    bookings.filter(b=>b.username===currentUser).forEach(b=>{
+        log(`${b.bookingId} | ${b.eventName} | ${b.eventId} | ${b.phone} | ${b.status} | ${b.paymentId}`);
+    });
+}
+
+// ----------------- Payments -----------------
+async function processPayment(username, bookingId, amount){
+    const mode = prompt("Payment Mode:\n1.UPI 2.Card 3.Cash","1");
+    const modes=["UPI","Card","Cash"];
+    const modeStr = modes[(parseInt(mode)||3)-1];
+    const pid="PAY"+(Math.floor(Math.random()*900000)+1000);
+    payments.push({paymentId:pid,username,bookingId,mode:modeStr,amount,status:"SUCCESS"});
+    await postData('/payments',{paymentId:pid,username,bookingId,mode:modeStr,amount,status:"SUCCESS"});
+    alert(`Payment done: ${pid}`);
+    return pid;
+}
+
+function viewPayments(){
+    clearOutput();
+    log("--- Payments ---");
+    payments.filter(p=>p.username===currentUser).forEach(p=>{
+        log(`${p.paymentId} | ${p.bookingId} | ${p.mode} | ₹${p.amount} | ${p.status}`);
+    });
+}
+
+// ----------------- Notifications -----------------
+async function addNotification(username,message){
+    notifications.push({username,message});
+    await postData('/notifications',{username,message});
+    log(`Notification added for ${username}`);
+}
+
+function viewNotificationsUser(){
+    clearOutput();
+    log(`--- Notifications for ${currentUser} ---`);
+    notifications.filter(n=>n.username===currentUser).forEach(n=>log(n.message));
+}
+
+// ----------------- Feedback -----------------
+async function addFeedbackUser(){
+    const msg = prompt("Enter feedback (no newline):");
+    feedbackList.push({username:currentUser,message:msg});
+    await postData('/feedback',{username:currentUser,message:msg});
+    alert("Feedback saved.");
+}
+function viewFeedbackAdmin(){
+    clearOutput();
+    log("--- Feedback ---");
+    feedbackList.forEach(f=>log(`${f.username}: ${f.message}`));
+}
+
+// ----------------- Waiting List -----------------
+async function enqueueWaiting(username, phone, eventId){
+    waitingList.push({username,phone,eventId});
+    await postData('/waiting',{username,phone,eventId});
+    log(`${username} added to waiting list for Event ${eventId}`);
+}
+
+function dequeueWaiting(eventId){
+    const index = waitingList.findIndex(w=>w.eventId===eventId);
+    if(index===-1) return null;
+    return waitingList.splice(index,1)[0];
+}
+
+// ----------------- Booking Search -----------------
+function searchBookingUser() {
+    const bid = prompt("Enter Booking ID to search:");
+    if (!bid) return;
+    const b = bstSearch(bstRoot, bid);
+    clearOutput();
+    if (b && b.username === currentUser) {
+        log(`Booking Found:\nID: ${b.bookingId}\nEvent: ${b.eventName}\nEvent ID: ${b.eventId}\nPhone: ${b.phone}\nStatus: ${b.status}\nPayment ID: ${b.paymentId}`);
+    } else {
+        log("Booking not found or does not belong to you.");
+    }
+}
+
+function searchBookingAdmin() {
+    const bid = prompt("Enter Booking ID to search:");
+    if (!bid) return;
+    const b = bstSearch(bstRoot, bid);
+    clearOutput();
+    if (b) {
+        log(`Booking Found:\nID: ${b.bookingId}\nUser: ${b.username}\nEvent: ${b.eventName}\nEvent ID: ${b.eventId}\nPhone: ${b.phone}\nStatus: ${b.status}\nPayment ID: ${b.paymentId}`);
+    } else {
+        log("Booking not found.");
+    }
+}
+</script>
+
+</body>
+</html>
